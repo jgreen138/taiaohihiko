@@ -12,9 +12,9 @@ dependencies:
     sdk: flutter
   flutter_blue_plus: ^1.35.5
   shared_preferences: ^2.5.3
-  permission_handler: ^11.3.1          # <— added
-
+  permission_handler: ^11.3.1 
   cupertino_icons: ^1.0.8
+  audioplayers: ^5.2.1   # <— NEW
 
 dev_dependencies:
   flutter_test:
@@ -30,7 +30,9 @@ flutter:
     - assets/tiles/words.png
     - assets/tiles/ear.png
     - assets/tiles/move.png
+    - assets/kaupae1/sound/listeningButton.png     # <— NEW image used as the big audio button
     - assets/kaupae1/tiles/
+    - assets/kaupae1/sound/                # <— NEW folder with your .ogg files
 
 flutter_icons:
   android: true

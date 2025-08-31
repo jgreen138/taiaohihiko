@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:math'; // Random, min/max/sqrt
 import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
+import 'package:audioplayers/audioplayers.dart';
+
 
 // BLE deps
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -50,6 +52,50 @@ class PuzzleRepository {
     return bank;
   }
 }
+
+/* ================= AUDIO PUZZLE MODEL + LOADER ================= */
+
+class AudioPuzzle {
+  final String soundPath;          // e.g. assets/kaupae1/sound/a-po-ro.ogg
+  final List<String> answer;       // e.g. ['a','po','ro']
+  const AudioPuzzle({required this.soundPath, required this.answer});
+}
+
+class AudioPuzzleRepository {
+  /// Loads all .ogg files in [folder] from AssetManifest and creates puzzles by splitting filename on '-'.
+  static Future<List<AudioPuzzle>> loadFolder(String folder) async {
+    final manifest = await rootBundle.loadString('AssetManifest.json');
+    final Map<String, dynamic> files = json.decode(manifest);
+    final paths = files.keys
+        .where((p) => p.startsWith('$folder/') && p.endsWith('.ogg'))
+        .toList()
+      ..sort();
+
+    return paths.map((p) {
+      final base = p.split('/').last.replaceAll('.ogg', '');
+      final parts = base.split('-');
+      return AudioPuzzle(soundPath: p, answer: parts);
+    }).toList();
+  }
+
+  /// Build a distractor pool from all unique syllables across the audio puzzles.
+  static Set<String> syllablePool(List<AudioPuzzle> puzzles) {
+    return puzzles.fold<Set<String>>(<String>{}, (set, p) => set..addAll(p.answer));
+  }
+
+  /// Create a mixed bank (correct syllables + distractors), shuffled.
+  static List<String> buildBank(Random rnd, AudioPuzzle p, Set<String> pool, {int size = 6}) {
+    final bank = <String>[...p.answer];
+    final choices = pool.difference(p.answer.toSet()).toList();
+    while (bank.length < size && choices.isNotEmpty) {
+      final pick = choices.removeAt(rnd.nextInt(choices.length));
+      bank.add(pick);
+    }
+    bank.shuffle(rnd);
+    return bank;
+  }
+}
+
 
 /* ========================== APP ========================== */
 
@@ -117,7 +163,7 @@ class HomePage extends StatelessWidget {
                           onTapTiles: [
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RobotPage())),
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae1RandomWordsPage())),
-                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ListenPage1())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae1RandomListenPage())),
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MovePage1())),
                           ],
                         ),
@@ -1188,6 +1234,104 @@ class _Kaupae1RandomWordsPageState extends State<Kaupae1RandomWordsPage> {
   }
 }
 
+/* ========== KAUPAE 1 — RANDOM LISTEN PUZZLE WRAPPER ========== */
+
+class Kaupae1RandomListenPage extends StatefulWidget {
+  const Kaupae1RandomListenPage({super.key});
+  @override
+  State<Kaupae1RandomListenPage> createState() => _Kaupae1RandomListenPageState();
+}
+
+class _Kaupae1RandomListenPageState extends State<Kaupae1RandomListenPage> {
+  static const folder = 'assets/kaupae1/sound';
+  final rnd = Random();
+
+  List<AudioPuzzle>? _all;
+  late Set<String> _pool;
+
+  AudioPuzzle? _current;
+  List<String>? _bank;
+
+  List<int> _bag = [];
+  int? _lastIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    final puzzles = await AudioPuzzleRepository.loadFolder(folder);
+    if (puzzles.isEmpty) {
+      throw Exception('No .ogg puzzles found in $folder/');
+    }
+    _all = puzzles;
+    _pool = AudioPuzzleRepository.syllablePool(puzzles);
+    _makeNext();
+  }
+
+  void _refillBag() {
+    if (_all == null || _all!.isEmpty) return;
+    _bag = List<int>.generate(_all!.length, (i) => i)..shuffle(rnd);
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + rnd.nextInt(_bag.length - 1);
+      final tmp = _bag[0]; _bag[0] = _bag[swapWith]; _bag[swapWith] = tmp;
+    }
+  }
+
+  int _dynamicBankSize(AudioPuzzle p) {
+    final uniqueDistractors = _pool.difference(p.answer.toSet()).length;
+    const bankCols = 3;
+    const maxRows = 2;
+    const maxTiles = bankCols * maxRows; // 6
+    final minTiles = p.answer.length + 2 <= maxTiles ? p.answer.length + 2 : maxTiles;
+    final desired = p.answer.length +
+        (uniqueDistractors < (maxTiles - p.answer.length)
+            ? uniqueDistractors
+            : (maxTiles - p.answer.length));
+    return desired.clamp(minTiles, maxTiles);
+  }
+
+  void _makeNext() {
+    if (_all == null || _all!.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final nextIndex = _bag.removeAt(0);
+    final p = _all![nextIndex];
+
+    final size = _dynamicBankSize(p);
+    final bank = AudioPuzzleRepository.buildBank(rnd, p, _pool, size: size);
+
+    setState(() {
+      _current = p;
+      _bank = bank;
+      _lastIndex = nextIndex;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgNavy = Color(0xFF1F4A78);
+
+    if (_current == null || _bank == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    return ListenPuzzlePage(
+      key: ValueKey(_current!.soundPath),
+      soundPath: _current!.soundPath,
+      answer: _current!.answer,
+      bankStart: _bank!,
+      onNext: _makeNext,
+    );
+  }
+}
+
+
 /* ===================== PUZZLE PAGE ====================== */
 
 class WordsPuzzlePage extends StatefulWidget {
@@ -1478,14 +1622,27 @@ class _WordsPuzzlePageState extends State<WordsPuzzlePage> {
                                     height: slotH,
                                     child: filled == null
                                         ? null
-                                        : LongPressDraggable<_FromSlot>(
+                                        : Draggable<_FromSlot>(
                                             data: _FromSlot(i),
-                                            feedback: _chip(
-                                              filled,
-                                              slotH,
-                                              tileFont,
-                                              opacity: 0.9,
-                                              width: slotW,
+                                            dragAnchorStrategy: childDragAnchorStrategy, // keep finger at same spot
+                                            onDragStarted: () {
+                                              HapticFeedback.selectionClick();
+                                              setState(() => _dragging = true);
+                                            },
+                                            onDragEnd: (_) => setState(() => _dragging = false),
+                                            feedback: Transform.scale(
+                                              scale: 1.08,
+                                              child: Material(
+                                                type: MaterialType.transparency,
+                                                child: _chip(
+                                                  filled,
+                                                  slotH,
+                                                  tileFont,
+                                                  opacity: 1,
+                                                  width: slotW,
+                                                  glow: true,
+                                                ),
+                                              ),
                                             ),
                                             childWhenDragging: _chip(
                                               '',
@@ -1531,11 +1688,28 @@ class _WordsPuzzlePageState extends State<WordsPuzzlePage> {
                                   runSpacing: g,
                                   children: [
                                     for (final t in bank)
-                                      LongPressDraggable<String>(
+                                      Draggable<String>(
                                         data: t,
-                                        onDragStarted: () => setState(() => _dragging = true),
+                                        dragAnchorStrategy: childDragAnchorStrategy, // keep center under finger
+                                        onDragStarted: () {
+                                          HapticFeedback.selectionClick();
+                                          setState(() => _dragging = true);
+                                        },
                                         onDragEnd: (_) => setState(() => _dragging = false),
-                                        feedback: _chip(t, tileH, tileFont, opacity: 0.9, width: bankTileW),
+                                        feedback: Transform.scale(
+                                          scale: 1.08,
+                                          child: Material(
+                                            type: MaterialType.transparency,
+                                            child: _chip(
+                                              t,
+                                              tileH,
+                                              tileFont,
+                                              opacity: 1,
+                                              width: bankTileW,
+                                              glow: true,
+                                            ),
+                                          ),
+                                        ),
                                         childWhenDragging: _chip('', tileH, tileFont, dim: true, width: bankTileW),
                                         child: _chip(t, tileH, tileFont, width: bankTileW),
                                       ),
@@ -1560,7 +1734,8 @@ class _WordsPuzzlePageState extends State<WordsPuzzlePage> {
   }
 
   // Visual chip
-  Widget _chip(String text, double h, double fs, {bool dim = false, double opacity = 1, double? width}) {
+  Widget _chip(String text, double h, double fs,
+      {bool dim = false, double opacity = 1, double? width, bool glow = false}) {
     return Opacity(
       opacity: opacity,
       child: Container(
@@ -1569,7 +1744,10 @@ class _WordsPuzzlePageState extends State<WordsPuzzlePage> {
         decoration: BoxDecoration(
           color: dim ? Colors.white38 : Colors.white,
           borderRadius: BorderRadius.circular(10),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+          boxShadow: [
+            if (glow) BoxShadow(color: Colors.white.withOpacity(0.85), blurRadius: 14, spreadRadius: 1),
+            const BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+          ],
         ),
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1654,6 +1832,455 @@ class _BankDragTarget extends StatelessWidget {
     );
   }
 }
+
+/* ===================== LISTEN PUZZLE PAGE ====================== */
+
+class ListenPuzzlePage extends StatefulWidget {
+  final String soundPath;          // asset path to .ogg (likely starts with "assets/")
+  final List<String> answer;       // syllables in order
+  final List<String> bankStart;
+  final VoidCallback? onNext;
+
+  const ListenPuzzlePage({
+    super.key,
+    required this.soundPath,
+    required this.answer,
+    required this.bankStart,
+    this.onNext,
+  });
+
+  @override
+  State<ListenPuzzlePage> createState() => _ListenPuzzlePageState();
+}
+
+class _ListenPuzzlePageState extends State<ListenPuzzlePage> with SingleTickerProviderStateMixin {
+  late List<String?> slots;
+  late List<String> bank;
+  bool? isCorrect;
+  bool _busy = false;
+  bool _dragging = false;
+
+  final _player = AudioPlayer();
+  bool _playing = false;
+  late final AnimationController _tapScale =
+      AnimationController(vsync: this, lowerBound: .95, upperBound: 1.0, duration: const Duration(milliseconds: 120))
+        ..value = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    slots = List<String?>.filled(widget.answer.length, null);
+    bank = List<String>.from(widget.bankStart);
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _playing = false);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ListenPuzzlePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.answer, widget.answer)) {
+      slots = List<String?>.filled(widget.answer.length, null);
+      isCorrect = null;
+    }
+    if (!listEquals(oldWidget.bankStart, widget.bankStart)) {
+      bank = List<String>.from(widget.bankStart);
+    }
+    _busy = false;
+    _dragging = false;
+  }
+
+  @override
+  void dispose() {
+    _tapScale.dispose();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _play() async {
+    try {
+      setState(() => _playing = true);
+      await _player.stop();
+      // ---- Only change: strip leading "assets/" for AssetSource ----
+      final rel = widget.soundPath.startsWith('assets/')
+          ? widget.soundPath.substring(7)
+          : widget.soundPath;
+      await _player.play(AssetSource(rel));
+    } catch (_) {
+      setState(() => _playing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kāore i taea te purei i te oro')),
+      );
+    }
+  }
+
+  void _check() {
+    if (_busy) return;
+    _busy = true;
+    final built = slots.map((s) => s ?? '').toList();
+    final correct = listEquals(built, widget.answer);
+
+    if (correct) {
+      setState(() => isCorrect = true);
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        _busy = false;
+        widget.onNext?.call();
+      });
+    } else {
+      setState(() => isCorrect = false);
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        setState(() {
+          bank.addAll(slots.whereType<String>());
+          slots = List<String?>.filled(widget.answer.length, null);
+          isCorrect = null;
+        });
+        _busy = false;
+      });
+    }
+  }
+
+  void _clearStatus() {
+    if (isCorrect != null) setState(() => isCorrect = null);
+  }
+
+  void _placeFromBankToSlot(String tile, int slotIndex) {
+    setState(() {
+      _clearStatus();
+      final prev = slots[slotIndex];
+      if (prev != null) bank.add(prev);
+      bank.remove(tile);
+      slots[slotIndex] = tile;
+    });
+  }
+
+  void _slotToSlot(int from, int to) {
+    setState(() {
+      _clearStatus();
+      final a = slots[from];
+      final b = slots[to];
+      slots[to] = a;
+      slots[from] = b;
+    });
+  }
+
+  void _slotToBank(int from) {
+    final tile = slots[from];
+    if (tile == null) return;
+    setState(() {
+      _clearStatus();
+      slots[from] = null;
+      bank.add(tile);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgNavy = Color(0xFF1F4A78);
+
+    return Scaffold(
+      backgroundColor: bgNavy,
+      appBar: AppBar(
+        backgroundColor: bgNavy,
+        elevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: IgnorePointer(
+            ignoring: _dragging,
+            child: SizedBox(
+              height: 64,
+              child: Row(
+                children: [
+                  _IconButtonSquare(
+                    icon: Icons.undo_rounded,
+                    onTap: () {
+                      setState(() {
+                        bank.addAll(slots.whereType<String>());
+                        slots = List<String?>.filled(widget.answer.length, null);
+                        isCorrect = null;
+                      });
+                    },
+                  ),
+                  const Spacer(),
+                  _OtiButton(label: 'oti', onTap: _check),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final h = c.maxHeight;
+            final w = c.maxWidth;
+
+            const sidePad = 16.0;
+            const g = 12.0;
+            const colGap = 12.0;
+            const slotH0 = 86.0;
+            const minImg = 110.0;
+            final maxBodyW = (w - sidePad * 2).clamp(0.0, 900.0);
+
+            final titleSize = (h * 0.043).clamp(20.0, 30.0);
+            final statusH = titleSize + 10.0;
+
+            final slotsCount = widget.answer.length.clamp(1, 6);
+            final slotW = ((maxBodyW - colGap * (slotsCount - 1))).clamp(0.0, double.infinity) / slotsCount;
+
+            double slotH = slotH0.clamp(56.0, 220.0);
+            slotH = slotH.clamp(56.0, slotW * 0.66);
+            double tileH = slotH;
+
+            const bankCols = 3;
+            final bankTileW = ((maxBodyW - colGap * (bankCols - 1))).clamp(0.0, double.infinity) / bankCols;
+
+            final bankRows = (bank.length / bankCols).ceil().clamp(1, 3);
+            final bankHeight = bankRows * tileH + (bankRows - 1) * g;
+
+            final fixedTop = statusH + g;
+            final fixedGaps = g + g + g;
+
+            const navHeight = 64.0;
+            const navPad = 12.0;
+            final spacerH = navHeight + navPad + MediaQuery.of(context).viewPadding.bottom;
+
+            final bottomGap = spacerH;
+
+            final availableForImageAndTiles = h - (fixedTop + fixedGaps + bottomGap) - 24;
+            final tilesNeeded = slotH + tileH + tileH;
+
+            double scale = 1.0;
+            if ((tilesNeeded + minImg) > availableForImageAndTiles) {
+              final denom = tilesNeeded;
+              if (denom > 0) {
+                scale = ((availableForImageAndTiles - minImg) / denom).clamp(0.55, 1.0);
+              }
+            }
+            slotH *= scale;
+            tileH *= scale;
+
+            final imageH = 0.8*(availableForImageAndTiles - (slotH + tileH + tileH)).clamp(minImg, h * 0.5);
+            final tileFont = (tileH * 0.42).clamp(18.0, 28.0);
+
+            // Header text + icon colors like words page
+            final statusText = switch (isCorrect) {
+              null => 'He aha te kupu e rongo ana koe?',
+              true => 'Tika!',
+              false => 'Ngana anō',
+            };
+            final statusIcon = switch (isCorrect) {
+              null => Icons.hearing,
+              true => Icons.check_circle,
+              false => Icons.cancel,
+            };
+            final statusColor = switch (isCorrect) {
+              null => Colors.amber,
+              true => Colors.greenAccent,
+              false => Colors.redAccent,
+            };
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: sidePad),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: statusH,
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              statusText,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: titleSize,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(statusIcon, color: statusColor, size: titleSize + 6),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  // Big center "play" button area (reuses the image slot from words page)
+                  SizedBox(
+                    height: imageH,
+                    width: maxBodyW,
+                    child: Center(
+                      child: GestureDetector(
+                        onTapDown: (_) => _tapScale.reverse(),
+                        onTapCancel: () => _tapScale.forward(),
+                        onTapUp: (_) => _tapScale.forward(),
+                        onTap: _play,
+                        child: ScaleTransition(
+                          scale: _tapScale,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))
+                              ],
+                            ),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.asset(
+                                    'assets/kaupae1/sound/listeningButton.png',
+                                    height: imageH,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                                if (_playing)
+                                  const Positioned(
+                                    bottom: 10,
+                                    child: Icon(Icons.graphic_eq, color: Colors.white, size: 40),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  // Slots
+                  SizedBox(
+                    width: maxBodyW,
+                    height: slotH,
+                    child: Row(
+                      children: List.generate(widget.answer.length, (i) {
+                        final filled = slots[i];
+                        return SizedBox(
+                          width: slotW,
+                          height: slotH,
+                          child: Padding(
+                            padding: EdgeInsets.only(right: i < widget.answer.length - 1 ? colGap : 0),
+                            child: _SlotTarget(
+                              height: slotH,
+                              child: filled == null
+                                  ? null
+                                  : Draggable<_FromSlot>(
+                                      data: _FromSlot(i),
+                                      dragAnchorStrategy: childDragAnchorStrategy, // keep finger at same spot
+                                      onDragStarted: () {
+                                        HapticFeedback.selectionClick();
+                                        setState(() => _dragging = true);
+                                      },
+                                      onDragEnd: (_) => setState(() => _dragging = false),
+                                      feedback: Transform.scale(
+                                        scale: 1.08,
+                                        child: Material(
+                                          type: MaterialType.transparency,
+                                          child: _chip(filled, slotH, tileFont, opacity: 1, width: slotW, glow: true),
+                                        ),
+                                      ),
+                                      childWhenDragging: _chip('', slotH, tileFont, dim: true, width: slotW),
+                                      child: _chip(filled, slotH, tileFont, width: slotW),
+                                    ),
+                              onAcceptFromBank: (tile) => _placeFromBankToSlot(tile, i),
+                              onAcceptFromSlot: (from) => _slotToSlot(from, i),
+                              slotIndex: i,
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  // Bank & drop zone
+                  SizedBox(
+                    width: maxBodyW,
+                    height: bankHeight,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: _BankDragTarget(
+                            onAcceptFromSlot: (from) => _slotToBank(from),
+                            child: const SizedBox.expand(),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.topLeft,
+                          child: Wrap(
+                            spacing: colGap,
+                            runSpacing: g,
+                            children: [
+                              for (final t in bank)
+                                Draggable<String>(
+                                  data: t,
+                                  dragAnchorStrategy: childDragAnchorStrategy, // keep center under finger
+                                  onDragStarted: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _dragging = true);
+                                  },
+                                  onDragEnd: (_) => setState(() => _dragging = false),
+                                  feedback: Transform.scale(
+                                    scale: 1.08,
+                                    child: Material(
+                                      type: MaterialType.transparency,
+                                      child: _chip(t, tileH, tileFont, opacity: 1, width: bankTileW, glow: true),
+                                    ),
+                                  ),
+                                  childWhenDragging: _chip('', tileH, tileFont, dim: true, width: bankTileW),
+                                  child: _chip(t, tileH, tileFont, width: bankTileW),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: spacerH),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // Reuse the same visual chip from Words page
+  Widget _chip(String text, double h, double fs,
+      {bool dim = false, double opacity = 1, double? width, bool glow = false}) {
+    return Opacity(
+      opacity: opacity,
+      child: Container(
+        width: width,
+        height: h,
+        decoration: BoxDecoration(
+          color: dim ? Colors.white38 : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            if (glow) BoxShadow(color: Colors.white.withOpacity(0.85), blurRadius: 14, spreadRadius: 1),
+            const BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+          ],
+        ),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(text, style: TextStyle(fontSize: fs, color: Colors.black87)),
+      ),
+    );
+  }
+}
+
 
 /* ===================== BUTTONS ======================= */
 
@@ -1745,11 +2372,445 @@ class ListenPage3 extends StatelessWidget {
   Widget build(BuildContext context) => const _SimplePage(title: 'Listen');
 }
 
-class MovePage1 extends StatelessWidget {
+/* ===================== MOVE — LISTEN & CHOOSE (fixed init) ====================== */
+
+class MovePage1 extends StatefulWidget {
   const MovePage1({super.key});
   @override
-  Widget build(BuildContext context) => const _SimplePage(title: 'Move');
+  State<MovePage1> createState() => _MovePage1State();
 }
+
+class _MovePage1State extends State<MovePage1> with SingleTickerProviderStateMixin {
+  static const bgNavy = Color(0xFF1F4A78);
+
+  final String _tilesFolder = 'assets/kaupae1/tiles';
+  final String _soundsFolder = 'assets/kaupae1/sound';
+
+  final _player = AudioPlayer();
+  bool _playing = false;
+  late final AnimationController _tapScale =
+      AnimationController(vsync: this, lowerBound: .95, upperBound: 1.0, duration: const Duration(milliseconds: 120))
+        ..value = 1.0;
+
+  Map<String, String> _tilePathByName = {};
+  Map<String, String> _soundPathByName = {};
+  List<String> _validNames = [];                 // ← not late; starts empty
+
+  String? _targetName;
+  String? _targetSoundPath;
+  List<String> _optionImagePaths = [];
+
+  int? _selectedIndex;
+  bool? _isCorrect;
+
+  final List<int> _bag = [];
+  int? _lastIndex;
+
+  bool _loading = true;                          // ← loading gate
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onPlayerComplete.listen((_) => setState(() => _playing = false));
+    _loadAssets();
+  }
+
+  @override
+  void dispose() {
+    _tapScale.dispose();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAssets() async {
+    try {
+      final manifestStr = await rootBundle.loadString('AssetManifest.json');
+      final Map<String, dynamic> files = json.decode(manifestStr);
+
+      final tilePngs = files.keys
+          .where((p) => p.startsWith('$_tilesFolder/') && p.toLowerCase().endsWith('.png'))
+          .toList();
+
+      final soundOggs = files.keys
+          .where((p) => p.startsWith('$_soundsFolder/') && p.toLowerCase().endsWith('.ogg'))
+          .toList();
+
+      String baseFrom(String path) {
+        final file = path.split('/').last;
+        return file.replaceAll(RegExp(r'\.(png|ogg)$', caseSensitive: false), '');
+      }
+
+      _tilePathByName = { for (final p in tilePngs) baseFrom(p): p };
+      _soundPathByName = { for (final p in soundOggs) baseFrom(p): p };
+
+      _validNames = _tilePathByName.keys
+          .toSet()
+          .intersection(_soundPathByName.keys.toSet())
+          .toList()
+        ..sort();
+
+      if (_validNames.isNotEmpty) {
+        _makeNext();
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _refillBag() {
+    _bag
+      ..clear()
+      ..addAll(List<int>.generate(_validNames.length, (i) => i)..shuffle(Random()));
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + Random().nextInt(_bag.length - 1);
+      final t = _bag[0]; _bag[0] = _bag[swapWith]; _bag[swapWith] = t;
+    }
+  }
+
+  void _makeNext() {
+    if (_validNames.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final idx = _bag.removeAt(0);
+    _lastIndex = idx;
+
+    final name = _validNames[idx];
+    final correctImg = _tilePathByName[name]!;
+    final correctSnd = _soundPathByName[name]!;
+
+    final others = _tilePathByName.keys.where((n) => n != name).toList()..shuffle(Random());
+    final distractors = others.take(3).map((n) => _tilePathByName[n]!).toList();
+    final options = <String>[correctImg, ...distractors]..shuffle(Random());
+
+    setState(() {
+      _targetName = name;
+      _targetSoundPath = correctSnd;
+      _optionImagePaths = options;
+      _selectedIndex = null;
+      _isCorrect = null;
+      _playing = false;
+    });
+  }
+
+  Future<void> _play() async {
+    if (_targetSoundPath == null) return;
+    try {
+      setState(() => _playing = true);
+      await _player.stop();
+      final rel = _targetSoundPath!.startsWith('assets/') ? _targetSoundPath!.substring(7) : _targetSoundPath!;
+      await _player.play(AssetSource(rel));
+    } catch (_) {
+      setState(() => _playing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Kāore i taea te purei i te oro')),
+        );
+      }
+    }
+  }
+
+  void _submit() {
+    if (_selectedIndex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kōwhiria tētahi pikitia')),
+      );
+      return;
+    }
+    final chosenPath = _optionImagePaths[_selectedIndex!];
+    final chosenName = chosenPath.split('/').last.replaceAll('.png', '');
+    final ok = (chosenName == _targetName);
+
+    setState(() => _isCorrect = ok);
+
+    if (ok) {
+      Future.delayed(const Duration(milliseconds: 450), () {
+        if (!mounted) return;
+        _makeNext();
+      });
+    } else {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (!mounted) return;
+        setState(() {
+          _selectedIndex = null;
+          _isCorrect = null;
+        });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Loading state
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(child: Center(child: CircularProgressIndicator(color: Colors.white))),
+      );
+    }
+
+    // No valid pairs found
+    if (_validNames.isEmpty) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(
+          child: Center(
+            child: Text(
+              'Kāore he oro me ngā pikitia ōrite i kitea.',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Guard: options not ready yet
+    if (_optionImagePaths.length < 4 || _targetSoundPath == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(child: Center(child: CircularProgressIndicator(color: Colors.white))),
+      );
+    }
+
+    final statusText = switch (_isCorrect) {
+      null => 'Whakarongo — kōwhiria te pikitia tika',
+      true => 'Tika!',
+      false => 'Ngana anō',
+    };
+    final statusIcon = switch (_isCorrect) {
+      null => Icons.help,
+      true => Icons.check_circle,
+      false => Icons.cancel,
+    };
+    final statusColor = switch (_isCorrect) {
+      null => Colors.amber,
+      true => Colors.greenAccent,
+      false => Colors.redAccent,
+    };
+
+    return Scaffold(
+      backgroundColor: bgNavy,
+      appBar: AppBar(
+        backgroundColor: bgNavy,
+        elevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              children: [
+                _IconButtonSquare(
+                  icon: Icons.undo_rounded,
+                  onTap: () => setState(() { _selectedIndex = null; _isCorrect = null; }),
+                ),
+                const Spacer(),
+                _OtiButton(label: 'oti', onTap: _submit),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final h = c.maxHeight;
+            final w = c.maxWidth;
+
+            const sidePad = 16.0;
+            const g = 12.0;
+            const colGap = 12.0;
+
+            final maxBodyW = (w - sidePad * 2).clamp(0.0, 900.0);
+            final titleSize = (h * 0.043).clamp(20.0, 30.0);
+            final statusH = titleSize + 10.0;
+
+            final gridTileW = ((maxBodyW - colGap) / 2).clamp(110.0, 260.0);
+            final gridTileH = gridTileW;
+            final gridHeight = gridTileH * 2 + g;
+
+            final minButtonH = 110.0;
+            final spaceForButton =
+                h - statusH - g - gridHeight - g - (64.0 + 12.0) - MediaQuery.of(context).viewPadding.bottom - 24.0;
+            final buttonH = spaceForButton.clamp(minButtonH, h * 0.4);
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: sidePad),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: statusH,
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              statusText,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: titleSize,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(statusIcon, color: statusColor, size: titleSize + 6),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  SizedBox(
+                    height: buttonH,
+                    width: maxBodyW,
+                    child: Center(
+                      child: GestureDetector(
+                        onTapDown: (_) => _tapScale.reverse(),
+                        onTapCancel: () => _tapScale.forward(),
+                        onTapUp: (_) => _tapScale.forward(),
+                        onTap: _play,
+                        child: ScaleTransition(
+                          scale: _tapScale,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.asset(
+                                  'assets/kaupae1/sound/listeningButton.png',
+                                  height: buttonH,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              if (_playing)
+                                const Positioned(
+                                  bottom: 10,
+                                  child: Icon(Icons.graphic_eq, color: Colors.white, size: 40),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  SizedBox(
+                    width: maxBodyW,
+                    height: gridHeight,
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            _ChoiceTile(
+                              path: _optionImagePaths[0],
+                              selected: _selectedIndex == 0,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 0; _isCorrect = null; }),
+                            ),
+                            SizedBox(width: colGap),
+                            _ChoiceTile(
+                              path: _optionImagePaths[1],
+                              selected: _selectedIndex == 1,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 1; _isCorrect = null; }),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: g),
+                        Row(
+                          children: [
+                            _ChoiceTile(
+                              path: _optionImagePaths[2],
+                              selected: _selectedIndex == 2,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 2; _isCorrect = null; }),
+                            ),
+                            SizedBox(width: colGap),
+                            _ChoiceTile(
+                              path: _optionImagePaths[3],
+                              selected: _selectedIndex == 3,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 3; _isCorrect = null; }),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ChoiceTile extends StatelessWidget {
+  final String path;
+  final bool selected;
+  final Size size;
+  final VoidCallback onTap;
+
+  const _ChoiceTile({
+    super.key,
+    required this.path,
+    required this.selected,
+    required this.size,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size.width,
+      height: size.height,
+      child: Material(
+        color: Colors.transparent,
+        elevation: selected ? 8 : 4,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: const Color(0xFF244C7F),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected ? Colors.amber : const Color(0xFF1B3555),
+                width: selected ? 4 : 2,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  alignment: Alignment.center,
+                  child: Image.asset(
+                    path,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.broken_image, color: Colors.white70, size: 48),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 class MovePage2 extends StatelessWidget {
   const MovePage2({super.key});
@@ -1776,3 +2837,4 @@ class _SimplePage extends StatelessWidget {
     );
   }
 }
+
