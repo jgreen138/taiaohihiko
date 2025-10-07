@@ -3116,8 +3116,16 @@ class _WordsPuzzlePageState extends State<WordsPuzzlePage> {
           ],
         ),
         alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Text(text, style: TextStyle(fontSize: fs, color: Colors.black87)),
+        padding: EdgeInsets.symmetric(horizontal: (width ?? h) * 0.08),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            text,
+            style: TextStyle(fontSize: fs, color: Colors.black87, fontWeight: FontWeight.w500),
+            maxLines: 1,
+            overflow: TextOverflow.visible,
+          ),
+        ),
       ),
     );
   }
@@ -3640,8 +3648,16 @@ class _ListenPuzzlePageState extends State<ListenPuzzlePage> with SingleTickerPr
           ],
         ),
         alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Text(text, style: TextStyle(fontSize: fs, color: Colors.black87)),
+        padding: EdgeInsets.symmetric(horizontal: (width ?? h) * 0.08),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            text,
+            style: TextStyle(fontSize: fs, color: Colors.black87, fontWeight: FontWeight.w500),
+            maxLines: 1,
+            overflow: TextOverflow.visible,
+          ),
+        ),
       ),
     );
   }
