@@ -30,9 +30,13 @@ flutter:
     - assets/tiles/words.png
     - assets/tiles/ear.png
     - assets/tiles/move.png
-    - assets/kaupae1/sound/listeningButton.png     # <— NEW image used as the big audio button
+    - assets/kaupae1/sound/listeningButton.png
     - assets/kaupae1/tiles/
-    - assets/kaupae1/sound/                # <— NEW folder with your .ogg files
+    - assets/kaupae1/sound/
+    - assets/kaupae2/tiles/
+    - assets/kaupae2/sound/
+    - assets/kaupae3/tiles/
+    - assets/kaupae3/sound/
 
 flutter_icons:
   android: true

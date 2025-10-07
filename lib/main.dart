@@ -56,26 +56,34 @@ class PuzzleRepository {
 /* ================= AUDIO PUZZLE MODEL + LOADER ================= */
 
 class AudioPuzzle {
-  final String soundPath;          // e.g. assets/kaupae1/sound/a-po-ro.ogg
+  final String soundPath;          // e.g. assets/kaupae1/sound/a-po-ro.ogg, .mp4, or .m4a
   final List<String> answer;       // e.g. ['a','po','ro']
   const AudioPuzzle({required this.soundPath, required this.answer});
 }
 
 class AudioPuzzleRepository {
-  /// Loads all .ogg files in [folder] from AssetManifest and creates puzzles by splitting filename on '-'.
+  /// Loads all audio files (.ogg, .mp4, .m4a) in [folder] from AssetManifest and creates puzzles by splitting filename on '-'.
   static Future<List<AudioPuzzle>> loadFolder(String folder) async {
     final manifest = await rootBundle.loadString('AssetManifest.json');
     final Map<String, dynamic> files = json.decode(manifest);
     final paths = files.keys
-        .where((p) => p.startsWith('$folder/') && p.endsWith('.ogg'))
+        .where((p) => p.startsWith('$folder/') && _isAudioFile(p))
         .toList()
       ..sort();
 
     return paths.map((p) {
-      final base = p.split('/').last.replaceAll('.ogg', '');
+      final base = p.split('/').last.replaceAll(RegExp(r'\.(ogg|mp4|m4a)$'), '');
       final parts = base.split('-');
       return AudioPuzzle(soundPath: p, answer: parts);
     }).toList();
+  }
+
+  /// Check if a file path has a supported audio extension
+  static bool _isAudioFile(String path) {
+    final lowerPath = path.toLowerCase();
+    return lowerPath.endsWith('.ogg') ||
+           lowerPath.endsWith('.mp4') ||
+           lowerPath.endsWith('.m4a');
   }
 
   /// Build a distractor pool from all unique syllables across the audio puzzles.
@@ -164,7 +172,7 @@ class HomePage extends StatelessWidget {
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RobotPage())),
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae1RandomWordsPage())),
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae1RandomListenPage())),
-                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MovePage1())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae1MovePage())),
                           ],
                         ),
                       ),
@@ -176,8 +184,21 @@ class HomePage extends StatelessWidget {
                     color: kaupae2Color,
                     height: buttonHeight,
                     fontSize: fontSize,
-                    enabled: false,
-                    onTap: () {},
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => KaupaePage(
+                          title: 'Kaupae 2',
+                          headerColor: kaupae2Color,
+                          onTapTiles: [
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RobotPage())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae2RandomWordsPage())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae2RandomListenPage())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae2MovePage())),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                   SizedBox(height: gap),
                   _BigNavButton(
@@ -185,8 +206,21 @@ class HomePage extends StatelessWidget {
                     color: kaupae3Color,
                     height: buttonHeight,
                     fontSize: fontSize,
-                    enabled: false,
-                    onTap: () {},
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => KaupaePage(
+                          title: 'Kaupae 3',
+                          headerColor: kaupae3Color,
+                          onTapTiles: [
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RobotPage())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae3RandomWordsPage())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae3RandomListenPage())),
+                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Kaupae3MovePage())),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -216,7 +250,6 @@ class _BigNavButton extends StatelessWidget {
   final VoidCallback onTap;
   final double height;
   final double fontSize;
-  final bool enabled;
 
   const _BigNavButton({
     super.key,
@@ -225,30 +258,25 @@ class _BigNavButton extends StatelessWidget {
     required this.onTap,
     required this.height,
     required this.fontSize,
-    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    final effectiveOnTap = enabled ? onTap : null;
-    final effectiveColor = enabled ? color : Color.lerp(color, Colors.grey, 0.6)!;
-    final textColor = enabled ? Colors.white : Colors.white70;
-
     return Semantics(
       button: true,
-      enabled: enabled,
+      enabled: true,
       child: Material(
-        elevation: enabled ? 6 : 0,
+        elevation: 6,
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(28),
         child: InkWell(
           borderRadius: BorderRadius.circular(28),
-          onTap: effectiveOnTap,
+          onTap: onTap,
           child: Ink(
             height: height,
             width: double.infinity,
             decoration: BoxDecoration(
-              color: effectiveColor,
+              color: color,
               borderRadius: BorderRadius.circular(28),
             ),
             child: Center(
@@ -256,7 +284,7 @@ class _BigNavButton extends StatelessWidget {
                 label,
                 style: TextStyle(
                   fontSize: fontSize,
-                  color: textColor,
+                  color: Colors.white,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.5,
                 ),
@@ -1167,7 +1195,11 @@ class _Kaupae1RandomWordsPageState extends State<Kaupae1RandomWordsPage> {
   Future<void> _loadAll() async {
     final puzzles = await PuzzleRepository.loadFolder(folder);
     if (puzzles.isEmpty) {
-      throw Exception('No puzzles found in $folder/');
+      setState(() {
+        _all = [];
+        _pool = {};
+      });
+      return;
     }
     _all = puzzles;
     _pool = PuzzleRepository.syllablePool(puzzles);
@@ -1217,6 +1249,34 @@ class _Kaupae1RandomWordsPageState extends State<Kaupae1RandomWordsPage> {
   Widget build(BuildContext context) {
     const bgNavy = Color(0xFF1F4A78);
 
+    if (_all == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    if (_all!.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgNavy,
+        appBar: AppBar(
+          backgroundColor: bgNavy,
+          elevation: 0,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'Kāore anō kia tāpirihia ngā mahi kupu.',
+              style: TextStyle(color: Colors.white, fontSize: 20),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     if (_current == null || _bank == null) {
       return const Scaffold(
         backgroundColor: bgNavy,
@@ -1264,7 +1324,11 @@ class _Kaupae1RandomListenPageState extends State<Kaupae1RandomListenPage> {
   Future<void> _loadAll() async {
     final puzzles = await AudioPuzzleRepository.loadFolder(folder);
     if (puzzles.isEmpty) {
-      throw Exception('No .ogg puzzles found in $folder/');
+      setState(() {
+        _all = [];
+        _pool = {};
+      });
+      return;
     }
     _all = puzzles;
     _pool = AudioPuzzleRepository.syllablePool(puzzles);
@@ -1314,6 +1378,34 @@ class _Kaupae1RandomListenPageState extends State<Kaupae1RandomListenPage> {
   Widget build(BuildContext context) {
     const bgNavy = Color(0xFF1F4A78);
 
+    if (_all == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    if (_all!.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgNavy,
+        appBar: AppBar(
+          backgroundColor: bgNavy,
+          elevation: 0,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'Kāore anō kia tāpirihia ngā mahi whakarongo.',
+              style: TextStyle(color: Colors.white, fontSize: 20),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     if (_current == null || _bank == null) {
       return const Scaffold(
         backgroundColor: bgNavy,
@@ -1327,6 +1419,1280 @@ class _Kaupae1RandomListenPageState extends State<Kaupae1RandomListenPage> {
       answer: _current!.answer,
       bankStart: _bank!,
       onNext: _makeNext,
+    );
+  }
+}
+
+/* ========== KAUPAE 2 — RANDOM WORDS PUZZLE WRAPPER ========== */
+
+class Kaupae2RandomWordsPage extends StatefulWidget {
+  const Kaupae2RandomWordsPage({super.key});
+  @override
+  State<Kaupae2RandomWordsPage> createState() => _Kaupae2RandomWordsPageState();
+}
+
+class _Kaupae2RandomWordsPageState extends State<Kaupae2RandomWordsPage> {
+  static const folder = 'assets/kaupae2/tiles';
+  final rnd = Random();
+
+  List<Puzzle>? _all;
+  late Set<String> _pool;
+
+  Puzzle? _current;
+  List<String>? _bank;
+
+  List<int> _bag = [];
+  int? _lastIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    final puzzles = await PuzzleRepository.loadFolder(folder);
+    if (puzzles.isEmpty) {
+      setState(() {
+        _all = [];
+        _pool = {};
+      });
+      return;
+    }
+    _all = puzzles;
+    _pool = PuzzleRepository.syllablePool(puzzles);
+    _makeNext();
+  }
+
+  void _refillBag() {
+    if (_all == null || _all!.isEmpty) return;
+    _bag = List<int>.generate(_all!.length, (i) => i)..shuffle(rnd);
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + rnd.nextInt(_bag.length - 1);
+      final tmp = _bag[0];
+      _bag[0] = _bag[swapWith];
+      _bag[swapWith] = tmp;
+    }
+  }
+
+  int _dynamicBankSize(Puzzle p) {
+    final uniqueDistractors = _pool.difference(p.answer.toSet()).length;
+    const bankCols = 3, maxRows = 2, maxTiles = bankCols * maxRows; // 6
+    final minTiles = (p.answer.length + 2 <= maxTiles) ? p.answer.length + 2 : maxTiles;
+    final desired = p.answer.length +
+        (uniqueDistractors < (maxTiles - p.answer.length)
+            ? uniqueDistractors
+            : (maxTiles - p.answer.length));
+    return desired.clamp(minTiles, maxTiles);
+  }
+
+  void _makeNext() {
+    if (_all == null || _all!.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final nextIndex = _bag.removeAt(0);
+    final p = _all![nextIndex];
+
+    final size = _dynamicBankSize(p);
+    final bank = PuzzleRepository.buildBank(rnd, p, _pool, size: size);
+
+    setState(() {
+      _current = p;
+      _bank = bank;
+      _lastIndex = nextIndex;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgNavy = Color(0xFF1F4A78);
+
+    if (_all == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    if (_all!.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgNavy,
+        appBar: AppBar(
+          backgroundColor: bgNavy,
+          elevation: 0,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'Kāore anō kia tāpirihia ngā mahi kupu.',
+              style: TextStyle(color: Colors.white, fontSize: 20),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_current == null || _bank == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    return WordsPuzzlePage(
+      key: ValueKey(_current!.imagePath),
+      imagePath: _current!.imagePath,
+      answer: _current!.answer,
+      bankStart: _bank!,
+      onNext: _makeNext,
+    );
+  }
+}
+
+/* ========== KAUPAE 2 — RANDOM LISTEN PUZZLE WRAPPER ========== */
+
+class Kaupae2RandomListenPage extends StatefulWidget {
+  const Kaupae2RandomListenPage({super.key});
+  @override
+  State<Kaupae2RandomListenPage> createState() => _Kaupae2RandomListenPageState();
+}
+
+class _Kaupae2RandomListenPageState extends State<Kaupae2RandomListenPage> {
+  static const folder = 'assets/kaupae2/sound';
+  final rnd = Random();
+
+  List<AudioPuzzle>? _all;
+  late Set<String> _pool;
+
+  AudioPuzzle? _current;
+  List<String>? _bank;
+
+  List<int> _bag = [];
+  int? _lastIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    final puzzles = await AudioPuzzleRepository.loadFolder(folder);
+    if (puzzles.isEmpty) {
+      setState(() {
+        _all = [];
+        _pool = {};
+      });
+      return;
+    }
+    _all = puzzles;
+    _pool = AudioPuzzleRepository.syllablePool(puzzles);
+    _makeNext();
+  }
+
+  void _refillBag() {
+    if (_all == null || _all!.isEmpty) return;
+    _bag = List<int>.generate(_all!.length, (i) => i)..shuffle(rnd);
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + rnd.nextInt(_bag.length - 1);
+      final tmp = _bag[0]; _bag[0] = _bag[swapWith]; _bag[swapWith] = tmp;
+    }
+  }
+
+  int _dynamicBankSize(AudioPuzzle p) {
+    final uniqueDistractors = _pool.difference(p.answer.toSet()).length;
+    const bankCols = 3;
+    const maxRows = 2;
+    const maxTiles = bankCols * maxRows; // 6
+    final minTiles = p.answer.length + 2 <= maxTiles ? p.answer.length + 2 : maxTiles;
+    final desired = p.answer.length +
+        (uniqueDistractors < (maxTiles - p.answer.length)
+            ? uniqueDistractors
+            : (maxTiles - p.answer.length));
+    return desired.clamp(minTiles, maxTiles);
+  }
+
+  void _makeNext() {
+    if (_all == null || _all!.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final nextIndex = _bag.removeAt(0);
+    final p = _all![nextIndex];
+
+    final size = _dynamicBankSize(p);
+    final bank = AudioPuzzleRepository.buildBank(rnd, p, _pool, size: size);
+
+    setState(() {
+      _current = p;
+      _bank = bank;
+      _lastIndex = nextIndex;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgNavy = Color(0xFF1F4A78);
+
+    if (_all == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    if (_all!.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgNavy,
+        appBar: AppBar(
+          backgroundColor: bgNavy,
+          elevation: 0,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'Kāore anō kia tāpirihia ngā mahi whakarongo.',
+              style: TextStyle(color: Colors.white, fontSize: 20),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_current == null || _bank == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    return ListenPuzzlePage(
+      key: ValueKey(_current!.soundPath),
+      soundPath: _current!.soundPath,
+      answer: _current!.answer,
+      bankStart: _bank!,
+      onNext: _makeNext,
+    );
+  }
+}
+
+/* ========== KAUPAE 2 — MOVE PAGE WRAPPER ========== */
+
+class Kaupae2MovePage extends StatefulWidget {
+  const Kaupae2MovePage({super.key});
+  @override
+  State<Kaupae2MovePage> createState() => _Kaupae2MovePageState();
+}
+
+class _Kaupae2MovePageState extends State<Kaupae2MovePage> with SingleTickerProviderStateMixin {
+  static const bgNavy = Color(0xFF1F4A78);
+
+  final String _tilesFolder = 'assets/kaupae2/tiles';
+  final String _soundsFolder = 'assets/kaupae2/sound';
+
+  final _player = AudioPlayer();
+  bool _playing = false;
+  late final AnimationController _tapScale =
+      AnimationController(vsync: this, lowerBound: .95, upperBound: 1.0, duration: const Duration(milliseconds: 120))
+        ..value = 1.0;
+
+  Map<String, String> _tilePathByName = {};
+  Map<String, String> _soundPathByName = {};
+  List<String> _validNames = [];
+
+  String? _targetName;
+  String? _targetSoundPath;
+  List<String> _optionImagePaths = [];
+
+  int? _selectedIndex;
+  bool? _isCorrect;
+
+  final List<int> _bag = [];
+  int? _lastIndex;
+
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onPlayerComplete.listen((_) => setState(() => _playing = false));
+    _loadAssets();
+  }
+
+  @override
+  void dispose() {
+    _tapScale.dispose();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAssets() async {
+    try {
+      final manifestStr = await rootBundle.loadString('AssetManifest.json');
+      final Map<String, dynamic> files = json.decode(manifestStr);
+
+      final tilePngs = files.keys
+          .where((p) => p.startsWith('$_tilesFolder/') && p.toLowerCase().endsWith('.png'))
+          .toList();
+
+      final soundOggs = files.keys
+          .where((p) => p.startsWith('$_soundsFolder/') && AudioPuzzleRepository._isAudioFile(p))
+          .toList();
+
+      String baseFrom(String path) {
+        final file = path.split('/').last;
+        return file.replaceAll(RegExp(r'\.(png|ogg|mp4|m4a)$', caseSensitive: false), '');
+      }
+
+      _tilePathByName = { for (final p in tilePngs) baseFrom(p): p };
+      _soundPathByName = { for (final p in soundOggs) baseFrom(p): p };
+
+      _validNames = _tilePathByName.keys
+          .toSet()
+          .intersection(_soundPathByName.keys.toSet())
+          .toList()
+        ..sort();
+
+      if (_validNames.isNotEmpty) {
+        _makeNext();
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _refillBag() {
+    _bag
+      ..clear()
+      ..addAll(List<int>.generate(_validNames.length, (i) => i)..shuffle(Random()));
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + Random().nextInt(_bag.length - 1);
+      final t = _bag[0]; _bag[0] = _bag[swapWith]; _bag[swapWith] = t;
+    }
+  }
+
+  void _makeNext() {
+    if (_validNames.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final idx = _bag.removeAt(0);
+    _lastIndex = idx;
+
+    final name = _validNames[idx];
+    final correctImg = _tilePathByName[name]!;
+    final correctSnd = _soundPathByName[name]!;
+
+    final others = _tilePathByName.keys.where((n) => n != name).toList()..shuffle(Random());
+    final distractors = others.take(3).map((n) => _tilePathByName[n]!).toList();
+    final options = <String>[correctImg, ...distractors]..shuffle(Random());
+
+    setState(() {
+      _targetName = name;
+      _targetSoundPath = correctSnd;
+      _optionImagePaths = options;
+      _selectedIndex = null;
+      _isCorrect = null;
+      _playing = false;
+    });
+  }
+
+  Future<void> _play() async {
+    if (_targetSoundPath == null) return;
+    try {
+      setState(() => _playing = true);
+      await _player.stop();
+      final rel = _targetSoundPath!.startsWith('assets/') ? _targetSoundPath!.substring(7) : _targetSoundPath!;
+      await _player.play(AssetSource(rel));
+    } catch (_) {
+      setState(() => _playing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Kāore i taea te purei i te oro')),
+        );
+      }
+    }
+  }
+
+  void _submit() {
+    if (_selectedIndex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kōwhiria tētahi pikitia')),
+      );
+      return;
+    }
+    final chosenPath = _optionImagePaths[_selectedIndex!];
+    final chosenName = chosenPath.split('/').last.replaceAll('.png', '');
+    final ok = (chosenName == _targetName);
+
+    setState(() => _isCorrect = ok);
+
+    if (ok) {
+      Future.delayed(const Duration(milliseconds: 450), () {
+        if (!mounted) return;
+        _makeNext();
+      });
+    } else {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (!mounted) return;
+        setState(() {
+          _selectedIndex = null;
+          _isCorrect = null;
+        });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(child: Center(child: CircularProgressIndicator(color: Colors.white))),
+      );
+    }
+
+    if (_validNames.isEmpty) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(
+          child: Center(
+            child: Text(
+              'Kāore he oro me ngā pikitia ōrite i kitea.',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_optionImagePaths.length < 4 || _targetSoundPath == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(child: Center(child: CircularProgressIndicator(color: Colors.white))),
+      );
+    }
+
+    final statusText = switch (_isCorrect) {
+      null => 'Whakarongo — kōwhiria te pikitia tika',
+      true => 'Tika!',
+      false => 'Ngana anō',
+    };
+    final statusIcon = switch (_isCorrect) {
+      null => Icons.help,
+      true => Icons.check_circle,
+      false => Icons.cancel,
+    };
+    final statusColor = switch (_isCorrect) {
+      null => Colors.amber,
+      true => Colors.greenAccent,
+      false => Colors.redAccent,
+    };
+
+    return Scaffold(
+      backgroundColor: bgNavy,
+      appBar: AppBar(
+        backgroundColor: bgNavy,
+        elevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              children: [
+                _IconButtonSquare(
+                  icon: Icons.undo_rounded,
+                  onTap: () => setState(() { _selectedIndex = null; _isCorrect = null; }),
+                ),
+                const Spacer(),
+                _OtiButton(label: 'oti', onTap: _submit),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final h = c.maxHeight;
+            final w = c.maxWidth;
+
+            const sidePad = 16.0;
+            const g = 12.0;
+            const colGap = 12.0;
+
+            final maxBodyW = (w - sidePad * 2).clamp(0.0, 900.0);
+            final titleSize = (h * 0.043).clamp(20.0, 30.0);
+            final statusH = titleSize + 10.0;
+
+            final gridTileW = ((maxBodyW - colGap) / 2).clamp(110.0, 260.0);
+            final gridTileH = gridTileW;
+            final gridHeight = gridTileH * 2 + g;
+
+            final minButtonH = 110.0;
+            final spaceForButton =
+                h - statusH - g - gridHeight - g - (64.0 + 12.0) - MediaQuery.of(context).viewPadding.bottom - 24.0;
+            final buttonH = spaceForButton.clamp(minButtonH, h * 0.4);
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: sidePad),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: statusH,
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              statusText,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: titleSize,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(statusIcon, color: statusColor, size: titleSize + 6),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  SizedBox(
+                    height: buttonH,
+                    width: maxBodyW,
+                    child: Center(
+                      child: GestureDetector(
+                        onTapDown: (_) => _tapScale.reverse(),
+                        onTapCancel: () => _tapScale.forward(),
+                        onTapUp: (_) => _tapScale.forward(),
+                        onTap: _play,
+                        child: ScaleTransition(
+                          scale: _tapScale,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.asset(
+                                  'assets/kaupae1/sound/listeningButton.png',
+                                  height: buttonH,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              if (_playing)
+                                const Positioned(
+                                  bottom: 10,
+                                  child: Icon(Icons.graphic_eq, color: Colors.white, size: 40),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  SizedBox(
+                    width: maxBodyW,
+                    height: gridHeight,
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            _ChoiceTile(
+                              path: _optionImagePaths[0],
+                              selected: _selectedIndex == 0,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 0; _isCorrect = null; }),
+                            ),
+                            SizedBox(width: colGap),
+                            _ChoiceTile(
+                              path: _optionImagePaths[1],
+                              selected: _selectedIndex == 1,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 1; _isCorrect = null; }),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: g),
+                        Row(
+                          children: [
+                            _ChoiceTile(
+                              path: _optionImagePaths[2],
+                              selected: _selectedIndex == 2,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 2; _isCorrect = null; }),
+                            ),
+                            SizedBox(width: colGap),
+                            _ChoiceTile(
+                              path: _optionImagePaths[3],
+                              selected: _selectedIndex == 3,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 3; _isCorrect = null; }),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/* ========== KAUPAE 3 — RANDOM WORDS PUZZLE WRAPPER ========== */
+
+class Kaupae3RandomWordsPage extends StatefulWidget {
+  const Kaupae3RandomWordsPage({super.key});
+  @override
+  State<Kaupae3RandomWordsPage> createState() => _Kaupae3RandomWordsPageState();
+}
+
+class _Kaupae3RandomWordsPageState extends State<Kaupae3RandomWordsPage> {
+  static const folder = 'assets/kaupae3/tiles';
+  final rnd = Random();
+
+  List<Puzzle>? _all;
+  late Set<String> _pool;
+
+  Puzzle? _current;
+  List<String>? _bank;
+
+  List<int> _bag = [];
+  int? _lastIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    final puzzles = await PuzzleRepository.loadFolder(folder);
+    if (puzzles.isEmpty) {
+      setState(() {
+        _all = [];
+        _pool = {};
+      });
+      return;
+    }
+    _all = puzzles;
+    _pool = PuzzleRepository.syllablePool(puzzles);
+    _makeNext();
+  }
+
+  void _refillBag() {
+    if (_all == null || _all!.isEmpty) return;
+    _bag = List<int>.generate(_all!.length, (i) => i)..shuffle(rnd);
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + rnd.nextInt(_bag.length - 1);
+      final tmp = _bag[0];
+      _bag[0] = _bag[swapWith];
+      _bag[swapWith] = tmp;
+    }
+  }
+
+  int _dynamicBankSize(Puzzle p) {
+    final uniqueDistractors = _pool.difference(p.answer.toSet()).length;
+    const bankCols = 3, maxRows = 2, maxTiles = bankCols * maxRows; // 6
+    final minTiles = (p.answer.length + 2 <= maxTiles) ? p.answer.length + 2 : maxTiles;
+    final desired = p.answer.length +
+        (uniqueDistractors < (maxTiles - p.answer.length)
+            ? uniqueDistractors
+            : (maxTiles - p.answer.length));
+    return desired.clamp(minTiles, maxTiles);
+  }
+
+  void _makeNext() {
+    if (_all == null || _all!.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final nextIndex = _bag.removeAt(0);
+    final p = _all![nextIndex];
+
+    final size = _dynamicBankSize(p);
+    final bank = PuzzleRepository.buildBank(rnd, p, _pool, size: size);
+
+    setState(() {
+      _current = p;
+      _bank = bank;
+      _lastIndex = nextIndex;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgNavy = Color(0xFF1F4A78);
+
+    if (_all == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    if (_all!.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgNavy,
+        appBar: AppBar(
+          backgroundColor: bgNavy,
+          elevation: 0,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'Kāore anō kia tāpirihia ngā mahi kupu.',
+              style: TextStyle(color: Colors.white, fontSize: 20),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_current == null || _bank == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    return WordsPuzzlePage(
+      key: ValueKey(_current!.imagePath),
+      imagePath: _current!.imagePath,
+      answer: _current!.answer,
+      bankStart: _bank!,
+      onNext: _makeNext,
+    );
+  }
+}
+
+/* ========== KAUPAE 3 — RANDOM LISTEN PUZZLE WRAPPER ========== */
+
+class Kaupae3RandomListenPage extends StatefulWidget {
+  const Kaupae3RandomListenPage({super.key});
+  @override
+  State<Kaupae3RandomListenPage> createState() => _Kaupae3RandomListenPageState();
+}
+
+class _Kaupae3RandomListenPageState extends State<Kaupae3RandomListenPage> {
+  static const folder = 'assets/kaupae3/sound';
+  final rnd = Random();
+
+  List<AudioPuzzle>? _all;
+  late Set<String> _pool;
+
+  AudioPuzzle? _current;
+  List<String>? _bank;
+
+  List<int> _bag = [];
+  int? _lastIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    final puzzles = await AudioPuzzleRepository.loadFolder(folder);
+    if (puzzles.isEmpty) {
+      setState(() {
+        _all = [];
+        _pool = {};
+      });
+      return;
+    }
+    _all = puzzles;
+    _pool = AudioPuzzleRepository.syllablePool(puzzles);
+    _makeNext();
+  }
+
+  void _refillBag() {
+    if (_all == null || _all!.isEmpty) return;
+    _bag = List<int>.generate(_all!.length, (i) => i)..shuffle(rnd);
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + rnd.nextInt(_bag.length - 1);
+      final tmp = _bag[0]; _bag[0] = _bag[swapWith]; _bag[swapWith] = tmp;
+    }
+  }
+
+  int _dynamicBankSize(AudioPuzzle p) {
+    final uniqueDistractors = _pool.difference(p.answer.toSet()).length;
+    const bankCols = 3;
+    const maxRows = 2;
+    const maxTiles = bankCols * maxRows; // 6
+    final minTiles = p.answer.length + 2 <= maxTiles ? p.answer.length + 2 : maxTiles;
+    final desired = p.answer.length +
+        (uniqueDistractors < (maxTiles - p.answer.length)
+            ? uniqueDistractors
+            : (maxTiles - p.answer.length));
+    return desired.clamp(minTiles, maxTiles);
+  }
+
+  void _makeNext() {
+    if (_all == null || _all!.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final nextIndex = _bag.removeAt(0);
+    final p = _all![nextIndex];
+
+    final size = _dynamicBankSize(p);
+    final bank = AudioPuzzleRepository.buildBank(rnd, p, _pool, size: size);
+
+    setState(() {
+      _current = p;
+      _bank = bank;
+      _lastIndex = nextIndex;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgNavy = Color(0xFF1F4A78);
+
+    if (_all == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    if (_all!.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgNavy,
+        appBar: AppBar(
+          backgroundColor: bgNavy,
+          elevation: 0,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'Kāore anō kia tāpirihia ngā mahi whakarongo.',
+              style: TextStyle(color: Colors.white, fontSize: 20),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_current == null || _bank == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    return ListenPuzzlePage(
+      key: ValueKey(_current!.soundPath),
+      soundPath: _current!.soundPath,
+      answer: _current!.answer,
+      bankStart: _bank!,
+      onNext: _makeNext,
+    );
+  }
+}
+
+/* ========== KAUPAE 3 — MOVE PAGE WRAPPER ========== */
+
+class Kaupae3MovePage extends StatefulWidget {
+  const Kaupae3MovePage({super.key});
+  @override
+  State<Kaupae3MovePage> createState() => _Kaupae3MovePageState();
+}
+
+class _Kaupae3MovePageState extends State<Kaupae3MovePage> with SingleTickerProviderStateMixin {
+  static const bgNavy = Color(0xFF1F4A78);
+
+  final String _tilesFolder = 'assets/kaupae3/tiles';
+  final String _soundsFolder = 'assets/kaupae3/sound';
+
+  final _player = AudioPlayer();
+  bool _playing = false;
+  late final AnimationController _tapScale =
+      AnimationController(vsync: this, lowerBound: .95, upperBound: 1.0, duration: const Duration(milliseconds: 120))
+        ..value = 1.0;
+
+  Map<String, String> _tilePathByName = {};
+  Map<String, String> _soundPathByName = {};
+  List<String> _validNames = [];
+
+  String? _targetName;
+  String? _targetSoundPath;
+  List<String> _optionImagePaths = [];
+
+  int? _selectedIndex;
+  bool? _isCorrect;
+
+  final List<int> _bag = [];
+  int? _lastIndex;
+
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onPlayerComplete.listen((_) => setState(() => _playing = false));
+    _loadAssets();
+  }
+
+  @override
+  void dispose() {
+    _tapScale.dispose();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAssets() async {
+    try {
+      final manifestStr = await rootBundle.loadString('AssetManifest.json');
+      final Map<String, dynamic> files = json.decode(manifestStr);
+
+      final tilePngs = files.keys
+          .where((p) => p.startsWith('$_tilesFolder/') && p.toLowerCase().endsWith('.png'))
+          .toList();
+
+      final soundOggs = files.keys
+          .where((p) => p.startsWith('$_soundsFolder/') && AudioPuzzleRepository._isAudioFile(p))
+          .toList();
+
+      String baseFrom(String path) {
+        final file = path.split('/').last;
+        return file.replaceAll(RegExp(r'\.(png|ogg|mp4|m4a)$', caseSensitive: false), '');
+      }
+
+      _tilePathByName = { for (final p in tilePngs) baseFrom(p): p };
+      _soundPathByName = { for (final p in soundOggs) baseFrom(p): p };
+
+      _validNames = _tilePathByName.keys
+          .toSet()
+          .intersection(_soundPathByName.keys.toSet())
+          .toList()
+        ..sort();
+
+      if (_validNames.isNotEmpty) {
+        _makeNext();
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _refillBag() {
+    _bag
+      ..clear()
+      ..addAll(List<int>.generate(_validNames.length, (i) => i)..shuffle(Random()));
+    if (_lastIndex != null && _bag.length > 1 && _bag.first == _lastIndex) {
+      final swapWith = 1 + Random().nextInt(_bag.length - 1);
+      final t = _bag[0]; _bag[0] = _bag[swapWith]; _bag[swapWith] = t;
+    }
+  }
+
+  void _makeNext() {
+    if (_validNames.isEmpty) return;
+    if (_bag.isEmpty) _refillBag();
+
+    final idx = _bag.removeAt(0);
+    _lastIndex = idx;
+
+    final name = _validNames[idx];
+    final correctImg = _tilePathByName[name]!;
+    final correctSnd = _soundPathByName[name]!;
+
+    final others = _tilePathByName.keys.where((n) => n != name).toList()..shuffle(Random());
+    final distractors = others.take(3).map((n) => _tilePathByName[n]!).toList();
+    final options = <String>[correctImg, ...distractors]..shuffle(Random());
+
+    setState(() {
+      _targetName = name;
+      _targetSoundPath = correctSnd;
+      _optionImagePaths = options;
+      _selectedIndex = null;
+      _isCorrect = null;
+      _playing = false;
+    });
+  }
+
+  Future<void> _play() async {
+    if (_targetSoundPath == null) return;
+    try {
+      setState(() => _playing = true);
+      await _player.stop();
+      final rel = _targetSoundPath!.startsWith('assets/') ? _targetSoundPath!.substring(7) : _targetSoundPath!;
+      await _player.play(AssetSource(rel));
+    } catch (_) {
+      setState(() => _playing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Kāore i taea te purei i te oro')),
+        );
+      }
+    }
+  }
+
+  void _submit() {
+    if (_selectedIndex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kōwhiria tētahi pikitia')),
+      );
+      return;
+    }
+    final chosenPath = _optionImagePaths[_selectedIndex!];
+    final chosenName = chosenPath.split('/').last.replaceAll('.png', '');
+    final ok = (chosenName == _targetName);
+
+    setState(() => _isCorrect = ok);
+
+    if (ok) {
+      Future.delayed(const Duration(milliseconds: 450), () {
+        if (!mounted) return;
+        _makeNext();
+      });
+    } else {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (!mounted) return;
+        setState(() {
+          _selectedIndex = null;
+          _isCorrect = null;
+        });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(child: Center(child: CircularProgressIndicator(color: Colors.white))),
+      );
+    }
+
+    if (_validNames.isEmpty) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(
+          child: Center(
+            child: Text(
+              'Kāore he oro me ngā pikitia ōrite i kitea.',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_optionImagePaths.length < 4 || _targetSoundPath == null) {
+      return const Scaffold(
+        backgroundColor: bgNavy,
+        body: SafeArea(child: Center(child: CircularProgressIndicator(color: Colors.white))),
+      );
+    }
+
+    final statusText = switch (_isCorrect) {
+      null => 'Whakarongo — kōwhiria te pikitia tika',
+      true => 'Tika!',
+      false => 'Ngana anō',
+    };
+    final statusIcon = switch (_isCorrect) {
+      null => Icons.help,
+      true => Icons.check_circle,
+      false => Icons.cancel,
+    };
+    final statusColor = switch (_isCorrect) {
+      null => Colors.amber,
+      true => Colors.greenAccent,
+      false => Colors.redAccent,
+    };
+
+    return Scaffold(
+      backgroundColor: bgNavy,
+      appBar: AppBar(
+        backgroundColor: bgNavy,
+        elevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              children: [
+                _IconButtonSquare(
+                  icon: Icons.undo_rounded,
+                  onTap: () => setState(() { _selectedIndex = null; _isCorrect = null; }),
+                ),
+                const Spacer(),
+                _OtiButton(label: 'oti', onTap: _submit),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final h = c.maxHeight;
+            final w = c.maxWidth;
+
+            const sidePad = 16.0;
+            const g = 12.0;
+            const colGap = 12.0;
+
+            final maxBodyW = (w - sidePad * 2).clamp(0.0, 900.0);
+            final titleSize = (h * 0.043).clamp(20.0, 30.0);
+            final statusH = titleSize + 10.0;
+
+            final gridTileW = ((maxBodyW - colGap) / 2).clamp(110.0, 260.0);
+            final gridTileH = gridTileW;
+            final gridHeight = gridTileH * 2 + g;
+
+            final minButtonH = 110.0;
+            final spaceForButton =
+                h - statusH - g - gridHeight - g - (64.0 + 12.0) - MediaQuery.of(context).viewPadding.bottom - 24.0;
+            final buttonH = spaceForButton.clamp(minButtonH, h * 0.4);
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: sidePad),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: statusH,
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              statusText,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: titleSize,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(statusIcon, color: statusColor, size: titleSize + 6),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  SizedBox(
+                    height: buttonH,
+                    width: maxBodyW,
+                    child: Center(
+                      child: GestureDetector(
+                        onTapDown: (_) => _tapScale.reverse(),
+                        onTapCancel: () => _tapScale.forward(),
+                        onTapUp: (_) => _tapScale.forward(),
+                        onTap: _play,
+                        child: ScaleTransition(
+                          scale: _tapScale,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.asset(
+                                  'assets/kaupae1/sound/listeningButton.png',
+                                  height: buttonH,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              if (_playing)
+                                const Positioned(
+                                  bottom: 10,
+                                  child: Icon(Icons.graphic_eq, color: Colors.white, size: 40),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: g),
+
+                  SizedBox(
+                    width: maxBodyW,
+                    height: gridHeight,
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            _ChoiceTile(
+                              path: _optionImagePaths[0],
+                              selected: _selectedIndex == 0,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 0; _isCorrect = null; }),
+                            ),
+                            SizedBox(width: colGap),
+                            _ChoiceTile(
+                              path: _optionImagePaths[1],
+                              selected: _selectedIndex == 1,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 1; _isCorrect = null; }),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: g),
+                        Row(
+                          children: [
+                            _ChoiceTile(
+                              path: _optionImagePaths[2],
+                              selected: _selectedIndex == 2,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 2; _isCorrect = null; }),
+                            ),
+                            SizedBox(width: colGap),
+                            _ChoiceTile(
+                              path: _optionImagePaths[3],
+                              selected: _selectedIndex == 3,
+                              size: Size(gridTileW, gridTileH),
+                              onTap: () => setState(() { _selectedIndex = 3; _isCorrect = null; }),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -1836,7 +3202,7 @@ class _BankDragTarget extends StatelessWidget {
 /* ===================== LISTEN PUZZLE PAGE ====================== */
 
 class ListenPuzzlePage extends StatefulWidget {
-  final String soundPath;          // asset path to .ogg (likely starts with "assets/")
+  final String soundPath;          // asset path to audio file: .ogg, .mp4, or .m4a (likely starts with "assets/")
   final List<String> answer;       // syllables in order
   final List<String> bankStart;
   final VoidCallback? onNext;
@@ -2374,13 +3740,13 @@ class ListenPage3 extends StatelessWidget {
 
 /* ===================== MOVE — LISTEN & CHOOSE (fixed init) ====================== */
 
-class MovePage1 extends StatefulWidget {
-  const MovePage1({super.key});
+class Kaupae1MovePage extends StatefulWidget {
+  const Kaupae1MovePage({super.key});
   @override
-  State<MovePage1> createState() => _MovePage1State();
+  State<Kaupae1MovePage> createState() => _Kaupae1MovePageState();
 }
 
-class _MovePage1State extends State<MovePage1> with SingleTickerProviderStateMixin {
+class _Kaupae1MovePageState extends State<Kaupae1MovePage> with SingleTickerProviderStateMixin {
   static const bgNavy = Color(0xFF1F4A78);
 
   final String _tilesFolder = 'assets/kaupae1/tiles';
@@ -2432,12 +3798,12 @@ class _MovePage1State extends State<MovePage1> with SingleTickerProviderStateMix
           .toList();
 
       final soundOggs = files.keys
-          .where((p) => p.startsWith('$_soundsFolder/') && p.toLowerCase().endsWith('.ogg'))
+          .where((p) => p.startsWith('$_soundsFolder/') && AudioPuzzleRepository._isAudioFile(p))
           .toList();
 
       String baseFrom(String path) {
         final file = path.split('/').last;
-        return file.replaceAll(RegExp(r'\.(png|ogg)$', caseSensitive: false), '');
+        return file.replaceAll(RegExp(r'\.(png|ogg|mp4|m4a)$', caseSensitive: false), '');
       }
 
       _tilePathByName = { for (final p in tilePngs) baseFrom(p): p };
